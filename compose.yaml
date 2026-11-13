@@ -1,0 +1,125 @@
+# Dev/test stack: MinIO (S3 stand-in) + Datadog agent + the connector, on one compose
+# network where services reach each other by name (no host-gateway addressing, identical
+# on macOS podman machine and Linux). Run it through scripts/dev-stack.sh, which fetches
+# the Nord Pool secret bundle via aws-vault and exports the derived defaults before
+# delegating to `podman compose`.
+#
+# Ports are still published to the host for the native tools (grpcui, mc, the MinIO
+# console, `cargo run` sending DogStatsD to 127.0.0.1:8125 via gvproxy).
+#
+# container_name is pinned on the connector: the dd-agent's journald log scoping and
+# process check match on the `nordpool-connector` name/cmdline.
+
+name: nordpool
+
+services:
+  minio:
+    image: quay.io/minio/minio
+    container_name: nordpool-minio
+    command: server /data --address ":9000" --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    restart: unless-stopped
+
+  # One-shot bucket bootstrap; the connector waits for it to complete so the uploader
+  # never races bucket creation. mb -p is idempotent.
+  minio-init:
+    image: quay.io/minio/mc
+    depends_on:
+      - minio
+    entrypoint: /bin/sh
+    command: >
+      -c "until mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null 2>&1; do sleep 0.5; done && mc mb -p local/nordpool-archive-dev local/nordpool-archive-prod"
+    restart: "no"
+
+  dd-agent:
+    build:
+      context: scripts
+      dockerfile: dd-agent.Containerfile
+    container_name: dd-agent
+    # The process check reads the host (VM) process table to find the connector.
+    pid: host
+    ports:
+      - "8125:8125/udp"
+    environment:
+      # Dummy key by default: DogStatsD ingests locally, forwards nowhere. Export
+      # DD_API_KEY for real forwarding; DD_HOSTNAME is exported by dev-stack.sh.
+      DD_API_KEY: ${DD_API_KEY:-0123456789abcdef0123456789abcdef}
+      DD_SITE: ${DD_SITE:-datadoghq.eu}
+      DD_HOSTNAME: ${DD_HOSTNAME:-dev}
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true"
+      DD_LOGS_ENABLED: "true"
+    volumes:
+      # The VM journal, where podman's journald driver writes the connector's stdout.
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    restart: unless-stopped
+
+  connector:
+    build:
+      context: .
+      args:
+        CARGO_PROFILE: ${CARGO_PROFILE:-release}
+    container_name: nordpool-connector
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      dd-agent:
+        condition: service_started
+    ports:
+      - "50051:50051"
+    # Endpoints/credentials per environment; dev-stack.sh exports the secret-bundle keys
+    # (env file wins over the bundle — unset shell vars are dropped from `environment`).
+    env_file:
+      - path: ${ENV_FILE:-connector.dev.env}
+    environment:
+      # Service-DNS wiring — the point of compose. ${VAR:-...} defaults keep a shell
+      # escape hatch (e.g. real S3: export AWS_ENDPOINT/creds before dev-stack.sh).
+      DOGSTATSD_ADDR: dd-agent:8125
+      GRPC_LISTEN_ADDR: 0.0.0.0:50051
+      AWS_ENDPOINT: ${AWS_ENDPOINT:-http://minio:9000}
+      AWS_ALLOW_HTTP: ${AWS_ALLOW_HTTP:-true}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      # dev-stack.sh derives the bucket from the aws-vault profile.
+      ARCHIVE_UPLOAD_URI: ${ARCHIVE_UPLOAD_URI:-s3://nordpool-archive-dev}
+      # The launcher fetched the bundle already; the connector must not fetch it again.
+      NORDPOOL_SECRET_ID: ""
+      # Credential pass-through — dev-stack.sh always exports both (env file wins over
+      # the secret bundle). NB: an `environment:` entry shadows the env_file value even
+      # when the shell var is unset, so these must never be left to the env file alone.
+      NORDPOOL_MARKET_DATA_API_USERNAME:
+      NORDPOOL_MARKET_DATA_API_PASSWORD:
+    restart: "no"
+
+  # Browser depth viewer: Caddy serving the baked wasm bundle, reverse-proxying the
+  # gRPC-Web path to the connector (one origin, no CORS — see Caddyfile), at
+  # http://localhost:8080. The wasm release build is heavy but layer-cached; for
+  # iterating on viewer code use `trunk serve` instead (crates/depth-viewer/Trunk.toml).
+  viewer:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    container_name: nordpool-viewer
+    depends_on:
+      connector:
+        condition: service_started
+    ports:
+      - "8080:80"
+    environment:
+      CONNECTOR_GRPC_ADDR: connector:50051
+    restart: unless-stopped
+
+volumes:
+  minio-data:
+    # Keep the volume name the legacy local-s3.sh used, so existing objects carry over.
+    name: nordpool-minio-data
+    external: false

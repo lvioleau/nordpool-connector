@@ -1,0 +1,31 @@
+# Caddy config for the web depth-viewer. One private origin: Caddy serves the static WASM bundle
+# and reverse-proxies the gRPC-Web path to the connector, so the browser issues no cross-origin
+# request and no CORS is needed. Plain HTTP — the only client is the loopback SSM tunnel, and
+# http://localhost is a browser secure context, so there is no TLS/cert to manage.
+#
+# Upstream is env-driven: prod sets CONNECTOR_GRPC_ADDR to the connector's Cloud Map / Service
+# Connect name; locally point it at a connector container or host (e.g. host.containers.internal).
+{
+	admin off
+	auto_https off
+}
+
+:{$CADDY_PORT:80} {
+	# The gRPC-Web feed streams (proto package path nordpool.marketdata.v1.*). The
+	# connector's tonic-web layer accepts these over HTTP/1.1, so a plain reverse_proxy works.
+	@grpcweb path /nordpool.marketdata.v1.*
+	handle @grpcweb {
+		reverse_proxy {$CONNECTOR_GRPC_ADDR:connector.nordpool.local:50051} {
+			# Server-streaming: flush each frame straight through instead of buffering.
+			flush_interval -1
+		}
+	}
+
+	# Everything else: the static bundle (index.html, hashed *.wasm, JS glue) from `trunk build`.
+	# gzip only here — never on the gRPC-Web stream, whose own framing must pass through untouched.
+	handle {
+		encode gzip
+		root * /srv/viewer
+		file_server
+	}
+}

@@ -1,0 +1,44 @@
+# Builds the wasm depth-viewer bundle and bakes it into a minimal Caddy image. Caddy serves the
+# static bundle and reverse-proxies the gRPC-Web path to the connector — one origin, no CORS, no
+# TLS (the only client is the loopback SSM tunnel). See Caddyfile.
+#
+# The build still loads the whole workspace (Cargo resolves every member manifest), so the context
+# is the repo root, like the other Dockerfiles.
+
+FROM rust:1-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        protobuf-compiler \
+        libprotobuf-dev \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PROTOC=/usr/bin/protoc
+
+# wasm target + a prebuilt trunk (compiling trunk from source would add minutes). Trunk fetches the
+# exact wasm-bindgen / wasm-opt versions pinned by Cargo.lock at build time, so the toolchain never
+# drifts out of sync with the wasm-bindgen crate. Keep this pin in step with devenv.local.nix.
+ARG TRUNK_VERSION=0.21.14
+# Arch-aware download: the build runs natively (x86_64 on CI, aarch64 under podman machine
+# on Apple Silicon), and an x86_64 trunk binary won't exec on an aarch64 builder.
+RUN rustup target add wasm32-unknown-unknown \
+    && curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-$(uname -m)-unknown-linux-gnu.tar.gz" \
+        | tar -xzf - -C /usr/local/bin trunk
+
+WORKDIR /app
+COPY . .
+# build.rs passes only proto/ as the protoc include root (the nix protoc used in dev bundles its
+# own well-known types). Stage the system google/protobuf/*.proto so imports resolve here too.
+RUN cp -r /usr/include/google proto/google
+# Release bundle → dist/ (index.html + hashed .wasm + JS glue, wasm-opt'd). Run from the crate dir:
+# trunk locates the target crate from cwd, not from an index path argument.
+WORKDIR /app/crates/depth-viewer
+RUN trunk build --release
+
+FROM caddy:2-alpine AS runtime
+
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=builder /app/crates/depth-viewer/dist /srv/viewer
+
+EXPOSE 80
+# The base image's default command runs `caddy run --config /etc/caddy/Caddyfile`.

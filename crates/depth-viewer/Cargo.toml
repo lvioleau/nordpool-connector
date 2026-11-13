@@ -1,0 +1,45 @@
+[package]
+name = "nordpool-depth-viewer"
+version = "0.1.0"
+edition = "2024"
+
+# Web (WebAssembly) order-book depth viewer (eframe/egui), served in the browser and talking to the
+# connector's depth feed over gRPC-Web. The pure `model` (chart segment-folding) compiles + unit-
+# tests on the host; the egui UI and the gRPC-Web transport are wasm-only. Built with trunk.
+# `crate-type` carries cdylib for the wasm bundle plus rlib so the bin links it.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Host build compiles only the pure `model` (+ its tests) and the stub `main`; it needs no deps.
+[dependencies]
+
+# Web (wasm32): eframe's default WebGL (glow) backend, gRPC-Web over fetch, browser timers/event loop.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+eframe = "0.29"
+# No tonic transport (hyper/h2 don't build for wasm) — just the codec + generic client; the
+# transport is tonic-web-wasm-client. build.rs only generates the proto for wasm.
+tonic = { version = "0.12", default-features = false, features = ["codegen", "prost"] }
+tonic-web-wasm-client = "0.6"
+prost = "0.13"
+# The feed protos carry google.protobuf.Timestamp; prost-build maps it to prost_types::Timestamp.
+prost-types = "0.13"
+crossbeam-channel = "0.5"
+futures = "0.3"
+anyhow = "1"
+tracing = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = "0.10"
+# SystemTime that works under wasm, for now_ms().
+web-time = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "Location", "Element", "HtmlCanvasElement"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+console_error_panic_hook = "0.1"
+tracing-wasm = "0.2"
+
+[build-dependencies]
+tonic-build = "0.12"
+# Fallback protoc for environments without one on PATH (e.g. GitHub CI, which
+# doesn't use the Nix/devenv shell). Locally the devenv shell supplies protoc.
+protoc-bin-vendored = "3"

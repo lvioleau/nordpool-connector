@@ -1,0 +1,12 @@
+[package]
+
+name = "nordpool-marketdata"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Timestamps are `DateTime<Utc>`, not bare epoch integers. No `clock` feature: the domain never
+# reads the wall clock, it only carries times its callers stamp.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+strum_macros = "0.28.0"
+tracing = "0.1"

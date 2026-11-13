@@ -1,0 +1,161 @@
+# Architecture of the Nord Pool intraday connector.
+#
+# Render the checked-in SVG the README embeds:
+#   d2 --layout elk --pad 20 docs/architecture.d2 docs/architecture.svg
+#
+# Colour follows crate ownership: blue = connector (ingest), green = marketdata
+# (pure domain state), purple = stream-server (gRPC), amber = the offline and
+# browser tools, grey = everything outside the process.
+
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+classes: {
+  ext: {
+    style: {
+      fill: "#f5f5f4"
+      stroke: "#78716c"
+      font-color: "#292524"
+      stroke-width: 2
+      border-radius: 8
+    }
+  }
+  conn: {
+    style: {
+      fill: "#e0f2fe"
+      stroke: "#0284c7"
+      font-color: "#0c4a6e"
+      stroke-width: 2
+      border-radius: 8
+    }
+  }
+  server: {
+    style: {
+      fill: "#ede9fe"
+      stroke: "#7c3aed"
+      font-color: "#3b0764"
+      stroke-width: 2
+      border-radius: 8
+    }
+  }
+  tool: {
+    style: {
+      fill: "#fef3c7"
+      stroke: "#d97706"
+      font-color: "#78350f"
+      stroke-width: 2
+      border-radius: 8
+    }
+  }
+  store: {
+    shape: cylinder
+    style: {
+      fill: "#dcfce7"
+      stroke: "#16a34a"
+      font-color: "#14532d"
+      stroke-width: 2
+    }
+  }
+  disk: {
+    shape: cylinder
+    style: {
+      fill: "#e0f2fe"
+      stroke: "#0284c7"
+      font-color: "#0c4a6e"
+      stroke-width: 2
+    }
+  }
+  group: {
+    style: {
+      fill: "#ffffff"
+      stroke: "#a8a29e"
+      stroke-dash: 3
+      font-color: "#44403c"
+      font-size: 20
+    }
+  }
+}
+
+sso: "Nord Pool SSO\nOAuth2 password grant" {class: ext}
+np: "Nord Pool intraday\nPMD v2 WebSocket API" {class: ext}
+
+connector: "connector process" {
+  class: group
+
+  transport: "transport\nWSS + TLS\nping / pong\ntoken refresh" {class: conn}
+  driver: "driver\ndecode once\n7 subscriptions\nreconnect + backoff\nsilence watchdog\ndaily recycle" {class: conn}
+  tee: "TeeSink\nfan-out\nstop on\nfirst error" {class: conn}
+
+  archive: "raw-frame archive" {
+    class: group
+
+    sink: "ArchiveSink\n(behind QueuedSink)\nverbatim frames\nTFRecord + CRC32C\nrotate: size /\nsnapshot / age" {class: conn}
+    files: "<type>/<date>/\n*.tfrecord.gz" {class: disk}
+    uploader: "Uploader\nscan + PUT\n+ delete" {class: conn}
+
+    sink -> files -> uploader
+  }
+
+  feeds: "reconstruction (marketdata)" {
+    class: group
+
+    lv: "LocalViewSink\nfold books\ntop-N + top_hash\nsuppression" {class: conn}
+    cs: "ContractSink\nkeep configured\nareas" {class: conn}
+    ss: "StatisticSink\nsplit per area" {class: conn}
+
+    depth: "DepthStore\nper area" {class: store}
+    contracts: "ContractStore" {class: store}
+    stats: "StatisticStore\nper area" {class: store}
+
+    lv -> depth: "seed then\nbroadcast" {style.stroke: "#16a34a"}
+    cs -> contracts {style.stroke: "#16a34a"}
+    ss -> stats {style.stroke: "#16a34a"}
+  }
+
+  grpc: "gRPC server (stream-server)" {
+    class: group
+
+    depthsvc: "DepthBookService" {class: server}
+    contractsvc: "ContractService" {class: server}
+    statsvc: "PublicStatisticService" {class: server}
+    infra: "health + reflection\ntonic-web\nsubscriber cap\ngraceful drain" {class: server}
+  }
+
+  transport -> driver
+  driver -> tee: "payload +\nwire bytes +\nrecv time"
+
+  tee -> archive.sink
+  tee -> feeds.lv
+  tee -> feeds.cs
+  tee -> feeds.ss
+
+  feeds.depth -> grpc.depthsvc: "seed + deltas" {style.stroke: "#7c3aed"}
+  feeds.contracts -> grpc.contractsvc: "seed + deltas" {style.stroke: "#7c3aed"}
+  feeds.stats -> grpc.statsvc: "seed + deltas" {style.stroke: "#7c3aed"}
+  driver -> grpc.infra: "feed_status" {style: {stroke: "#7c3aed"; stroke-dash: 3}}
+}
+
+s3: "S3 / file://\nimmutable segments" {
+  class: ext
+  shape: cylinder
+}
+replay: "depth-replay\nParquet / CSV" {class: tool}
+viewer: "depth-viewer\nwasm, gRPC-Web" {class: tool}
+clients: "native gRPC\nclients" {class: tool}
+dd: "DogStatsD agent" {class: ext}
+
+sso -> connector.transport: "https"
+np -> connector.transport: "wss"
+connector.archive.uploader -> s3: "PUT + tags"
+s3 -> replay: "offline" {style.stroke-dash: 3}
+connector.grpc.depthsvc -> viewer
+connector.grpc.statsvc -> viewer
+connector.grpc.depthsvc -> clients
+connector.grpc.contractsvc -> clients
+connector.grpc.statsvc -> clients
+connector -> dd: "UDP metrics" {style.stroke-dash: 3}

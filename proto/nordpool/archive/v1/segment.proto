@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package nordpool.archive.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// A raw wire frame paired with the moment the connector received it. The archive writes
+// these as TFRecord-framed records (see the connector's `tfrecord` module); `frame` is the
+// verbatim ServerFrame bytes (a reader may decode that field as
+// nps.intraday.pmd.v2.ServerFrame — same wire encoding).
+message TimestampedFrame {
+  google.protobuf.Timestamp timestamp = 1;
+  bytes frame = 2;
+}
+
+// The first record of every archive segment, so a segment is self-describing without its
+// path or filename. Every following record is a TimestampedFrame.
+message SegmentHeader {
+  // Record-format version. 1 = TFRecord framing, gzip-compressed on finalize.
+  uint32 version = 1;
+  // The archive frame-type label the segment holds (e.g. "localview").
+  string frame_type = 2;
+  // When the segment was opened — the (uniquified) instant stamped into its filename.
+  google.protobuf.Timestamp opened_at = 3;
+  // Per-snapshot segment counter: 0 marks a snapshot-led segment.
+  uint64 seq = 4;
+}

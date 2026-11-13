@@ -1,0 +1,8 @@
+target/
+crates/depth-viewer/dist/
+.git/
+.direnv/
+.devenv/
+*.parquet
+**/*.md
+*.env

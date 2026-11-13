@@ -1,0 +1,54 @@
+[package]
+name = "nordpool-connector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+prost = "0.13"
+prost-types = "0.13"
+tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+rustls = "0.23"
+webpki-roots = "0.26"
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+base64 = "0.22"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+anyhow = "1"
+configparser = "3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+ctrlc = { version = "3", features = ["termination"] }
+crossbeam-channel = "0.5"
+# `fs` + `time` are the uploader's: segment reads go through the blocking pool rather than stalling
+# its current-thread runtime, and the shutdown drain is bounded by a timeout. Both happen to be
+# enabled by other crates in the tree; declared here so a dependency dropping them can't break us.
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "fs", "time"] }
+nordpool-marketdata = { path = "../marketdata" }
+nordpool-stream-server = { path = "../stream-server" }
+metrics = "0.24.6"
+metrics-exporter-dogstatsd = "0.9.8"
+# Pinned exactly: object_store is pre-1.0, so a minor bump can break. `aws` for S3 + the
+# ECS task-role credential chain; `tls-webpki-roots` keeps the S3 path on rustls/webpki like
+# the rest of the connector; default features keep LocalFileSystem for the dev `file://` path.
+object_store = { version = "=0.13.2", features = ["aws", "tls-webpki-roots"] }
+# CRC32C (Castagnoli) for TFRecord record framing — crc32fast is the wrong (IEEE) polynomial.
+crc32c = "0.6"
+# Gzip for finalized archive segments and upload previews: TFRecord tooling reads GZIP, not zstd.
+flate2 = "1"
+# `statvfs` only, to report the staging disk's free space — std has no equivalent. Already in the
+# tree via tokio/object_store/chrono, so this makes an existing transitive dep direct.
+libc = "0.2"
+
+[build-dependencies]
+prost-build = "0.13"
+# Fallback protoc for environments without one on PATH (e.g. GitHub CI, which
+# doesn't use the Nix/devenv shell). Locally the devenv shell supplies protoc.
+protoc-bin-vendored = "3"
+
+[dev-dependencies]
+rcgen = "0.13"
+metrics-util = "0.20.4"

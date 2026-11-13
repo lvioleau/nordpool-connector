@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package nordpool.marketdata.v1;
+
+import "nordpool/marketdata/v1/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// Streams public trading statistics for the contracts the connector has seen on the public-
+// statistic feed (last trade, day high/low, VWAP, turnover, …), scoped to the connector's single
+// delivery area. On connect a client receives the full current set as the first message; after
+// that it receives each statistic frame's changed batch as it arrives. Every message is a set of
+// upserts keyed by contract id, so a client just merges each batch into its own map.
+service PublicStatisticService {
+  rpc SubscribeStatistics(SubscribeStatisticsRequest) returns (stream StatisticUpdate);
+}
+
+message SubscribeStatisticsRequest {
+  // The delivery area to subscribe to, as its ENTSO-E EIC code (e.g. `10YFI-1--------U`).
+  // A guard, not a filter: each stream serves one area's whole set. The value must match a
+  // served area, or the request is rejected with NOT_FOUND — the client is pointed at the
+  // wrong connector.
+  string eic_code = 1;
+}
+
+// A batch of statistic upserts: the full set on the connect/lag seed, or the contracts a single
+// feed frame changed.
+message StatisticUpdate {
+  repeated Statistic statistics = 1;
+  // Our receive timestamp for the frame whose changed statistics this batch carries. The
+  // connect/lag seed is the full current set assembled from many frames, so it instead carries
+  // the receive time of the last statistic frame applied to the store (absent until the first) —
+  // how fresh the seeded state is.
+  google.protobuf.Timestamp received_at = 2;
+  // Frame sequence assigned by the connector: increments with every statistic frame applied to
+  // the (area-spanning) store, so one frame's per-area batches share its seq and a single
+  // area's stream may skip numbers. A delta batch carries its frame's seq; the connect/lag seed
+  // carries the last applied frame's seq. The stream never delivers a delta with seq <= the
+  // seed's — those frames are already reflected in the seed and are dropped server-side — so
+  // every delta is strictly newer than the seed.
+  int64 seq = 3;
+}
+
+message Statistic {
+  int64 contract_id = 1;
+  MarketType market_type = 2;
+  // The statistic's delivery area, as its ENTSO-E EIC code.
+  string eic_code = 3;
+  // Optional: absent until the server has a value to publish (e.g. before the first trade).
+  optional int64 last_price = 4;
+  optional int64 last_quantity = 5;
+  // Presence rides on the message field itself, hence no `optional` like its neighbours.
+  google.protobuf.Timestamp last_trade_time = 6;
+  optional int64 highest_price = 7;
+  optional int64 lowest_price = 8;
+  optional int64 vwap = 9;
+  optional int64 turnover = 10;
+  optional int64 day_ahead_price = 11;
+  StatisticTendency tendency = 12;
+}
+
+enum StatisticTendency {
+  STATISTIC_TENDENCY_NONE = 0;
+  STATISTIC_TENDENCY_UP = 1;
+  STATISTIC_TENDENCY_DOWN = 2;
+  STATISTIC_TENDENCY_EQUAL = 3;
+}

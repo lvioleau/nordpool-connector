@@ -1,0 +1,15 @@
+# Build output
+/target
+crates/depth-viewer/dist
+
+# Editors / tooling
+.vscode
+.zed
+*.code-workspace
+.claude/
+.ipynb_checkpoints/
+.direnv
+
+# Local env files may hold credentials; only the documented dev template is tracked.
+*.env
+!connector.dev.env

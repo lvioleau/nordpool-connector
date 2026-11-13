@@ -1,0 +1,19 @@
+# Trunk build/serve config for the wasm depth viewer. `trunk build --release` produces the static
+# bundle (index.html + .wasm + JS glue) Caddy serves in prod (see Caddyfile); `trunk serve`
+# is the one-command local dev loop — it serves the bundle and proxies the gRPC-Web path straight to
+# a locally running connector, so the browser hits a single origin (http://localhost:8080) with no
+# CORS and no Caddy. That mirrors the prod topology where Caddy reverse-proxies the same path.
+
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+
+# Forward the gRPC-Web services (package path nordpool.marketdata.v1.*) to the connector's
+# gRPC port. Needs the connector built with the tonic-web layer and GRPC_LISTEN_ADDR=127.0.0.1:50051.
+# Server-streaming over this dev proxy is best-effort; Caddy (the prod path) is the faithful one.
+[[proxy]]
+backend = "http://127.0.0.1:50051/nordpool.marketdata.v1."

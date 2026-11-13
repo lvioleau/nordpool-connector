@@ -1,0 +1,30 @@
+[package]
+name = "nordpool-stream-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tonic = "0.12"
+tonic-reflection = "0.12"
+tonic-health = "0.12"
+tonic-web = "0.12"
+prost = "0.13"
+# The feed protos carry google.protobuf.Timestamp; prost-build maps it to prost_types::Timestamp.
+prost-types = "0.13"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+# Only for StreamExt::take_until (tokio-stream has no future-bounded cut); already in the
+# dependency tree via tonic/hyper.
+futures-util = { version = "0.3", default-features = false }
+anyhow = "1"
+# The domain's timestamps are `DateTime<Utc>`; this crate converts them at the wire boundary.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+tracing = "0.1"
+metrics = "0.24"
+nordpool-marketdata = { path = "../marketdata" }
+
+[build-dependencies]
+tonic-build = "0.12"
+# Fallback protoc for environments without one on PATH (e.g. GitHub CI, which
+# doesn't use the Nix/devenv shell). Locally the devenv shell supplies protoc.
+protoc-bin-vendored = "3"

@@ -1,0 +1,15 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # The streaming feeds return domain-named messages (PartialDepthSnapshot, ContractUpdate)
+    # rather than generic <Method>Response wrappers — the message *is* the entity. The standard
+    # name convention is aimed at unary request/response pairs and adds nothing here.
+    - RPC_RESPONSE_STANDARD_NAME
+  enum_zero_value_suffix: _NONE
+breaking:
+  use:
+    - FILE

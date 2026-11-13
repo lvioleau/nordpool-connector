@@ -1,0 +1,24 @@
+# Datadog agent process check for the connector. Baked in by dd-agent.Containerfile as
+# /etc/datadog-agent/conf.d/process.d/conf.yaml. Emits system.processes.* metrics
+# (cpu.pct, mem.rss, threads, open_file_descriptors, ...) tagged
+# process_name:nordpool-connector.
+#
+# Requires the agent container to share the host PID namespace (pid: host in
+# compose.yaml) — otherwise the agent only sees its own namespace and matches
+# nothing.
+#
+# search_string is a substring match (exact_match: false), OR'd across the list.
+# Anchor each on the binary's parent dir so it matches the spawned binary
+# (target/{debug,release}/nordpool-connector deployed as /usr/local/bin/
+# nordpool-connector) while skipping both the `cargo run -p nordpool-connector`
+# wrapper argv AND any shell sitting in the repo dir — the repo dir is itself
+# named `nordpool-connector`, so a bare `/nordpool-connector` would substring-
+# match any cmdline carrying the repo path and inflate the count.
+init_config:
+instances:
+  - name: nordpool-connector
+    search_string:
+      - bin/nordpool-connector
+      - target/debug/nordpool-connector
+      - target/release/nordpool-connector
+    exact_match: false

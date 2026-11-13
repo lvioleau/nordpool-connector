@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package nordpool.marketdata.v1;
+
+enum MarketType {
+  MARKET_TYPE_NONE = 0;
+  MARKET_TYPE_LOCAL = 1;
+  MARKET_TYPE_XBID = 2;
+}

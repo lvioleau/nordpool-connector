@@ -1,0 +1,15 @@
+# Datadog agent gRPC health check for the connector's stream server. Baked into the
+# dev-stack agent image by dd-agent.Containerfile as
+# /etc/datadog-agent/conf.d/grpc_check.d/conf.yaml. Probes grpc.health.v1.Health/Check
+# for the server-wide "" service (the one serve() registers) and emits the
+# grpc_check.healthy / grpc_check.unhealthy gauges plus the grpc.healthy service check.
+#
+# grpc_check is a community integration, not bundled in the agent image;
+# dd-agent.Containerfile installs it at image build time.
+#
+# The connector is a neighbour service on the compose network, reachable by name; it
+# listens on all interfaces (GRPC_LISTEN_ADDR=0.0.0.0:50051).
+init_config:
+instances:
+  - grpc_server_address: connector:50051
+    secure_channel: false

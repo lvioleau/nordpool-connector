@@ -1,0 +1,20 @@
+# Datadog log collection from the host's systemd journal, scoped to the connector.
+#
+# The connector logs JSON to stdout; podman's journald log driver writes it to the system
+# journal. This agent version's journald integration can only filter by systemd *unit*, and a
+# rootless foreground `podman run` lands under `user@1000.service` (all user services) with a
+# transient per-run scope — neither usable to isolate the connector. So instead we tail the
+# journal and keep only the connector's own entries with a processing rule. `process_raw_message:
+# false` makes both the rule and the forwarded content operate on the *message* (not the raw
+# journal-entry JSON); the connector's messages are JSON starting with `{"timestamp":`, while host
+# entries (systemd, wireplumber, ...) are plain text, so they're dropped. Datadog then auto-parses
+# the kept JSON into attributes.
+logs:
+  - type: journald
+    source: nordpool-connector
+    service: nordpool-connector
+    process_raw_message: false
+    log_processing_rules:
+      - type: include_at_match
+        name: connector_json_only
+        pattern: '\{"timestamp":'

@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["crates/connector", "crates/marketdata", "crates/stream-server", "crates/depth-replay", "crates/depth-viewer"]
+
+# Release optimizations plus full DWARF debug info. Same codegen as `release` (no perf
+# difference), just a larger binary — so `gdb`/stack dumps resolve source lines, args, and
+# dependency frames (e.g. metrics-util's registry). Built by the dev launcher; prod/CI build
+# the Dockerfile with its default `release` profile, staying lean.
+[profile.release-debug]
+inherits = "release"
+debug = 2

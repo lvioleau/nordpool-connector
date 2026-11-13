@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Nord Pool Depth Viewer</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0e0f10;
+      }
+      /* eframe's WebRunner renders into this canvas; fill the viewport. */
+      canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+    <!-- Build the bin (its wasm `main` mounts the WebRunner), not the rlib/cdylib; data-bin
+         disambiguates the two artifacts. wasm-opt runs on release only. -->
+    <link data-trunk rel="rust" data-bin="nordpool-depth-viewer" data-wasm-opt="z" />
+  </head>
+  <body>
+    <canvas id="depth_canvas"></canvas>
+  </body>
+</html>
